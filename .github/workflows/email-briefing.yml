@@ -1,0 +1,38 @@
+name: Email daily briefing
+
+# Runs on GitHub's servers (not your PC), so it does NOT depend on Windows Task Scheduler.
+# Fires whenever a new index.html is pushed to main, so the email always matches the
+# page that was just published. Also runnable on-demand from the Actions tab.
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'index.html' ]
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Compute today's date
+        id: d
+        run: echo "today=$(date +'%A, %B %d, %Y')" >> "$GITHUB_OUTPUT"
+
+      - name: Send the briefing email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: Market Briefing <${{ secrets.MAIL_USERNAME }}>
+          to: ${{ secrets.MAIL_TO }}
+          subject: "U.S. Market Disclosure Briefing — ${{ steps.d.outputs.today }}"
+          # Render the page itself as the email body, and attach a copy.
+          html_body: file://index.html
+          attachments: index.html
+          convert_markdown: false
