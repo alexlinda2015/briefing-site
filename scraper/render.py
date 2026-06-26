@@ -1,0 +1,255 @@
+"""Render data/listings.json into the self-contained dashboard auckland-industrial.html.
+
+No network needed — pure templating, safe to run locally. The listing data is
+embedded directly into the page so it works when opened from disk, served by
+GitHub Pages, or attached to an email.
+
+Usage:  python scraper/render.py
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA_PATH = ROOT / "data" / "listings.json"
+OUT_PATH = ROOT / "auckland-industrial.html"
+
+
+def load_payload() -> dict:
+    if DATA_PATH.exists():
+        try:
+            return json.loads(DATA_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    return {"generated_at": None, "generated_nz": "—", "total": 0,
+            "sources": [], "listings": []}
+
+
+TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auckland Industrial Property — For Lease</title>
+<style>
+  :root {
+    --bg:#0f1620; --panel:#16202c; --panel2:#1d2937; --line:#2a3a4d;
+    --text:#e7eef6; --muted:#8aa0b6; --accent:#3da5ff; --good:#3ddc84;
+    --warn:#ffce5c; --bad:#ff6b6b;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.5; }
+  header { padding:22px 26px 14px; border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#16202c,#0f1620); }
+  h1 { margin:0 0 4px; font-size:22px; letter-spacing:.2px; }
+  .sub { color:var(--muted); font-size:13px; }
+  .wrap { padding:18px 26px 60px; }
+  .sources { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 4px; }
+  .chip { display:flex; align-items:center; gap:7px; padding:6px 11px;
+    border:1px solid var(--line); border-radius:999px; background:var(--panel);
+    font-size:12.5px; }
+  .dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+  .dot.ok{background:var(--good);} .dot.no-data{background:var(--warn);}
+  .dot.error{background:var(--bad);}
+  .chip .n { color:var(--muted); }
+  .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    margin:18px 0 12px; }
+  input[type=search], select { background:var(--panel2); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px 11px; font-size:13px; }
+  input[type=search]{ min-width:240px; }
+  .count { color:var(--muted); font-size:13px; margin-left:auto; }
+  .tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; }
+  table { width:100%; border-collapse:collapse; min-width:1050px; }
+  th, td { padding:10px 12px; text-align:left; vertical-align:top;
+    border-bottom:1px solid var(--line); }
+  thead th { position:sticky; top:0; background:var(--panel2); cursor:pointer;
+    user-select:none; font-size:12px; text-transform:uppercase; letter-spacing:.5px;
+    color:var(--muted); white-space:nowrap; }
+  thead th:hover { color:var(--text); }
+  th .arrow { opacity:.5; font-size:10px; }
+  tbody tr:hover { background:#18242f; }
+  td.addr { font-weight:600; max-width:280px; }
+  td .agency { display:inline-block; font-size:11px; padding:2px 7px;
+    border-radius:5px; color:#0f1620; font-weight:700; }
+  .attrs { display:flex; flex-wrap:wrap; gap:4px; max-width:240px; }
+  .attr { background:var(--panel); border:1px solid var(--line); color:var(--muted);
+    border-radius:5px; padding:1px 6px; font-size:11px; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .dom { font-weight:700; }
+  .dom.hot{color:var(--good);} .dom.warm{color:var(--warn);} .dom.cold{color:var(--bad);}
+  a.view { color:var(--accent); text-decoration:none; white-space:nowrap; }
+  a.view:hover { text-decoration:underline; }
+  .muted { color:var(--muted); }
+  .empty { padding:40px; text-align:center; color:var(--muted); }
+  footer { color:var(--muted); font-size:12px; padding:18px 26px 40px;
+    border-top:1px solid var(--line); }
+  footer code { background:var(--panel2); padding:1px 5px; border-radius:4px; }
+  .banner { background:#21303f; border:1px solid var(--line);
+    border-left:3px solid var(--warn); border-radius:8px; padding:10px 13px;
+    margin:14px 0 0; font-size:13px; color:#d8e4f0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Auckland Industrial Property — For Lease</h1>
+  <div class="sub">Live listings aggregated from six commercial agencies ·
+    Last updated <strong>__GENERATED_NZ__</strong> ·
+    Auto-refreshed daily at 7:00 am NZ</div>
+</header>
+<div class="wrap">
+  <div class="sources" id="sources"></div>
+  <div id="banner"></div>
+
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Search address, suburb, attributes…">
+    <select id="srcFilter"><option value="">All agencies</option></select>
+    <select id="suburbFilter"><option value="">All suburbs</option></select>
+    <select id="sort">
+      <option value="dom_desc">Days on market ↓</option>
+      <option value="dom_asc">Days on market ↑</option>
+      <option value="area_desc">Area (largest)</option>
+      <option value="area_asc">Area (smallest)</option>
+      <option value="suburb">Suburb A–Z</option>
+    </select>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th data-k="address">Address <span class="arrow"></span></th>
+        <th data-k="suburb">Suburb <span class="arrow"></span></th>
+        <th data-k="grade">Grade <span class="arrow"></span></th>
+        <th data-k="area_sqm" class="num">NLA (m²) <span class="arrow"></span></th>
+        <th data-k="rent">Asking Rent <span class="arrow"></span></th>
+        <th data-k="date_listed">Listed <span class="arrow"></span></th>
+        <th data-k="days_on_market" class="num">Days <span class="arrow"></span></th>
+        <th data-k="attributes">Attributes <span class="arrow"></span></th>
+        <th data-k="owner">Owner / Agency <span class="arrow"></span></th>
+        <th data-k="url">Source <span class="arrow"></span></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+<footer>
+  Data is scraped automatically from each agency's public Auckland industrial
+  lease search and is provided for convenience only — always confirm details on
+  the source listing. <strong>Owner</strong> shows the landlord where an agency
+  publishes it; most listings expose only the marketing agency.
+  Days-on-market uses the published listing date where available, otherwise the
+  date this tracker first observed the listing. Rebuilt by
+  <code>scraper/scrape.py</code> via GitHub Actions.
+  <div id="genat" style="margin-top:6px;"></div>
+</footer>
+
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+const DATA = JSON.parse(document.getElementById('payload').textContent);
+const COLORS = {};
+(DATA.sources||[]).forEach(s => COLORS[s.name] = s.color || '#3da5ff');
+
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function domClass(d){ if(d==null) return ''; if(d<=14) return 'hot';
+  if(d<=45) return 'warm'; return 'cold'; }
+
+// ---- source status chips ----
+const srcEl = document.getElementById('sources');
+(DATA.sources||[]).forEach(s => {
+  const d = document.createElement('div'); d.className='chip';
+  d.innerHTML = `<span class="dot ${s.status}"></span>`+
+    `<a class="view" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a>`+
+    `<span class="n">${s.status==='ok'?s.count:(s.status==='error'?'blocked':'0')}</span>`;
+  srcEl.appendChild(d);
+});
+
+const blocked = (DATA.sources||[]).filter(s=>s.status==='error').map(s=>s.name);
+if(blocked.length){
+  document.getElementById('banner').innerHTML =
+    `<div class="banner">⚠ ${blocked.length} source(s) could not be reached on the last run `+
+    `(${esc(blocked.join(', '))}) — commercial sites intermittently block automated access. `+
+    `The remaining sources are shown below; click an agency chip to view its site directly.</div>`;
+}
+
+// ---- filters ----
+const srcSel = document.getElementById('srcFilter');
+[...new Set((DATA.listings||[]).map(l=>l.source))].sort().forEach(s=>{
+  const o=document.createElement('option'); o.value=s; o.textContent=s; srcSel.appendChild(o); });
+const subSel = document.getElementById('suburbFilter');
+[...new Set((DATA.listings||[]).map(l=>l.suburb).filter(Boolean))].sort().forEach(s=>{
+  const o=document.createElement('option'); o.value=s; o.textContent=s; subSel.appendChild(o); });
+
+let sortKey='days_on_market', sortDir=-1;
+function render(){
+  const q=(document.getElementById('q').value||'').toLowerCase().trim();
+  const sf=srcSel.value, uf=subSel.value, sortv=document.getElementById('sort').value;
+  let rows=(DATA.listings||[]).filter(l=>{
+    if(sf && l.source!==sf) return false;
+    if(uf && l.suburb!==uf) return false;
+    if(q){ const blob=[l.address,l.suburb,l.grade,l.rent,l.owner,(l.attributes||[]).join(' ')]
+      .join(' ').toLowerCase(); if(!blob.includes(q)) return false; }
+    return true;
+  });
+  const cmp={
+    dom_desc:(a,b)=>(b.days_on_market??-1)-(a.days_on_market??-1),
+    dom_asc:(a,b)=>(a.days_on_market??1e9)-(b.days_on_market??1e9),
+    area_desc:(a,b)=>(b.area_sqm??-1)-(a.area_sqm??-1),
+    area_asc:(a,b)=>(a.area_sqm??1e9)-(b.area_sqm??1e9),
+    suburb:(a,b)=>String(a.suburb||'').localeCompare(String(b.suburb||'')),
+  }[sortv];
+  if(cmp) rows.sort(cmp);
+
+  const tb=document.getElementById('rows'); tb.innerHTML='';
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="empty">'+
+    'No listings to show yet. The dashboard populates after the next 7 am NZ run.</td></tr>'; }
+  for(const l of rows){
+    const tr=document.createElement('tr');
+    const attrs=(l.attributes||[]).map(a=>`<span class="attr">${esc(a)}</span>`).join('');
+    const dc=domClass(l.days_on_market);
+    tr.innerHTML =
+      `<td class="addr">${esc(l.address||l.title||'—')}</td>`+
+      `<td>${esc(l.suburb||'—')}</td>`+
+      `<td>${esc(l.grade||'—')}</td>`+
+      `<td class="num">${l.area_sqm!=null?Number(l.area_sqm).toLocaleString():'—'}</td>`+
+      `<td>${esc(l.rent||'—')}</td>`+
+      `<td class="muted">${esc(l.date_listed||'—')}</td>`+
+      `<td class="num dom ${dc}">${l.days_on_market!=null?l.days_on_market:'—'}</td>`+
+      `<td><div class="attrs">${attrs||'<span class="muted">—</span>'}</div></td>`+
+      `<td>${esc(l.owner||'—')}<br><span class="agency" style="background:${COLORS[l.source]||'#3da5ff'}">${esc(l.source)}</span></td>`+
+      `<td>${l.url?`<a class="view" href="${esc(l.url)}" target="_blank" rel="noopener">View ↗</a>`:'—'}</td>`;
+    tb.appendChild(tr);
+  }
+  document.getElementById('count').textContent =
+    `${rows.length} of ${(DATA.listings||[]).length} listings`;
+}
+['q','srcFilter','suburbFilter','sort'].forEach(id=>
+  document.getElementById(id).addEventListener('input',render));
+render();
+
+document.getElementById('genat').textContent =
+  DATA.generated_at ? ('Build timestamp: '+DATA.generated_at) : '';
+</script>
+</body>
+</html>
+"""
+
+
+def render() -> Path:
+    payload = load_payload()
+    html = (TEMPLATE
+            .replace("__GENERATED_NZ__", payload.get("generated_nz") or "—")
+            .replace("__PAYLOAD__", json.dumps(payload, ensure_ascii=False)))
+    OUT_PATH.write_text(html, encoding="utf-8")
+    print(f"[render] wrote {OUT_PATH} ({len(html):,} bytes, "
+          f"{payload.get('total', 0)} listings)")
+    return OUT_PATH
+
+
+if __name__ == "__main__":
+    render()

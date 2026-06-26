@@ -1,0 +1,14 @@
+{
+  "generated_at": null,
+  "generated_nz": "awaiting first scheduled run",
+  "total": 0,
+  "sources": [
+    {"name": "Bayleys", "url": "https://www.bayleys.co.nz/industrialworkplace/properties/auckland", "color": "#d8232a", "status": "no-data", "error": null, "count": 0},
+    {"name": "Colliers", "url": "https://www.colliers.co.nz/en-nz/properties#sort=relevancy&f:listingtype=[For%20Lease]&f:propertytype=[Industrial]&f:recenttransactions=[0]&f:location=Auckland", "color": "#0a2342", "status": "no-data", "error": null, "count": 0},
+    {"name": "JLL", "url": "https://property.jll.nz/lease-warehouse/auckland", "color": "#e30613", "status": "no-data", "error": null, "count": 0},
+    {"name": "CBRE", "url": "https://www.cbre.co.nz/properties/portfolios/industrial-logistics-leasing/industrial-and-logistics-property-for-lease-auckland", "color": "#003f2d", "status": "no-data", "error": null, "count": 0},
+    {"name": "James Kirkpatrick", "url": "https://jkgl.co.nz/auckland-property-vacancies-and-rentals/warehouses", "color": "#1b3a5b", "status": "no-data", "error": null, "count": 0},
+    {"name": "Commercial Realty", "url": "https://commercialrealty.co.nz/properties/?type=lease&property_type=industrial&district=Manukau%2BCity", "color": "#b8860b", "status": "no-data", "error": null, "count": 0}
+  ],
+  "listings": []
+}

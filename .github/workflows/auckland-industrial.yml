@@ -1,0 +1,95 @@
+name: Auckland industrial dashboard
+
+# Scrapes the six agency sources and rebuilds auckland-industrial.html.
+# Runs every day at 7:00 am New Zealand time. Because GitHub cron is UTC-only and
+# cannot follow daylight saving, we fire at both 18:00 UTC (= 7am NZDT, summer)
+# and 19:00 UTC (= 7am NZST, winter); a guard step lets only the run that lands
+# on NZ 07:00 proceed, so it is exactly once per day year-round.
+#
+# Note: scheduled runs only fire from the repository's default branch. Use the
+# "Run workflow" button (workflow_dispatch) to test from a feature branch.
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+    - cron: '0 19 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: auckland-industrial
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard — only proceed at 7am NZ for scheduled runs
+        id: guard
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          HOUR=$(TZ=Pacific/Auckland date +%H)
+          echo "NZ hour is $HOUR"
+          if [ "$HOUR" = "07" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Not 7am NZ — skipping this scheduled trigger."
+          fi
+
+      - name: Check out repo
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scraper/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Scrape sources
+        if: steps.guard.outputs.run == 'true'
+        run: python scraper/scrape.py
+        continue-on-error: true
+
+      - name: Render dashboard
+        if: steps.guard.outputs.run == 'true'
+        run: python scraper/render.py
+
+      - name: Upload debug HTML (for parser tuning)
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-html-${{ github.run_id }}
+          path: scraper/debug/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Commit and push the rebuilt dashboard
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add auckland-industrial.html data/listings.json data/seen.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Auckland industrial dashboard — $(TZ=Pacific/Auckland date +'%a %d %b %Y %H:%M NZ')"
+          for i in 1 2 3 4; do
+            if git push origin HEAD:${{ github.ref_name }}; then
+              echo "pushed"; break
+            fi
+            echo "push failed, retry $i"; sleep $((2 ** i))
+          done
